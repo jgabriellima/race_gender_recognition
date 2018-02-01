@@ -11,12 +11,15 @@ The labels of each face image is embedded in the file name, formated like [age]_
 
 gender_labels: 0: male, 1: female
 {'0': 12391, '1': 11317})
+
 race_labels:
 Counter({'0': 10078, '1': 4528, '2': 3434, '3': 3976, '4': 1692})
 
 augmentation:
 0: no, 1: x2, 2: x3, 3: x3, 4: x4
+
 23708 - 57234
+
 Counter({'0': 10078, '1': 9056, '2': 13736, '3': 15904, '4': 8460})
 
 
@@ -40,10 +43,10 @@ evaluator.py
 - evaluate trained model
 
 predictor.py
-Important dependencies:
+- Important dependencies:
 1. dlib.
 Install on Windows with instruction from https://github.com/charlielito/install-dlib-python-windows.
-2. cv2
 Also, might have to use an older version of python.
+2. cv2
 - preprocess: chop and align the face
 - predict use saved model
