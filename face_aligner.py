@@ -154,15 +154,21 @@ def align_face(img):
 
     fa = FaceAligner(predictor, desiredFaceWidth=200)
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.uint8)
 
     rects = detector(gray, 2)
     # loop over the face detections
 
+    max_area = 0
+
     for rect in rects:
         # extract the ROI of the *original* face, then align the face
         # using facial landmarks
+
         (x, y, w, h) = rect_to_bb(rect)
-        faceAligned = fa.align(img, gray, rect)
+
+        if w * h > max_area:
+            max_area = w * h
+            faceAligned = fa.align(img, gray, rect)
 
     return faceAligned

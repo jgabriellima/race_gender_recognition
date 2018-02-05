@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops.variables import get_or_create_global_step
 from tensorflow.python.platform import tf_logging as logging
-from inception_resnet_v1 import inception_resnet_v1, inception_resnet_v1_arg_scope
+# from inception_resnet_v1 import inception_resnet_v1, inception_resnet_v1_arg_scope
 
 from multitask_model import losses, read_and_decode, build_model
 import os
@@ -9,32 +9,31 @@ import time
 slim = tf.contrib.slim
 
 #================ DATASET INFORMATION ======================
-data_file = './data/train.tfrecords'
+# project_dir = '/data/gender_race_face/'
+project_dir = './'
+data_dir = project_dir + 'data/'
+data_file = data_dir + 'train.tfrecords'
 
 # pre-trained checkpoint
-pretrained_checkpoint = './model/model-20170512-110547.ckpt-250000'
+model_dir = project_dir +'models/'
+pretrained_checkpoint = model_dir + 'model-20170512-110547.ckpt-250000'
 
 #State where your log file is at. If it doesn't exist, create it.
-log_dir = './log/model_0_1/'
+model_name = 'model_1'
+log_dir = project_dir + 'logs/' + model_name
 
 checkpoint_prefix = log_dir + '/model_iters'
-final_checkpoint_file = checkpoint_prefix + '_final.ckpt'
+final_checkpoint_file = model_dir + model_name + '_final'
 
-#input for nn.
 image_size = 200
 
-#State the number of classes to predict:
 num_races = 5
-num_samples = 57234
+num_samples = 38505
 
 #================= TRAINING INFORMATION ==================
-#State the number of epochs to train
 num_epochs = 1
+batch_size = 8
 
-#State your batch size
-batch_size = 32
-
-#Learning rate information and configuration (Up to you to experiment)
 initial_learning_rate = 0.01
 learning_rate_decay_factor = 0.7
 num_epochs_before_decay = 2
@@ -42,6 +41,8 @@ num_epochs_before_decay = 2
 num_batches_per_epoch = int(num_samples / batch_size)
 num_steps_per_epoch = num_batches_per_epoch  # Because one step is one batch processed
 decay_steps = int(num_epochs_before_decay * num_steps_per_epoch)
+
+num_steps_per_epoch = 201
 
 lr = 0.001
 decay_rate=0.1
@@ -68,24 +69,27 @@ def run():
     images, genders, races = read_and_decode(data_file, [image_size, image_size], batch_size=batch_size)
 
     # build the multitask model
-    logits_gender, logits_race, end_points, variables_to_restore = build_model(images)
+    train_mode = tf.placeholder(tf.bool)
 
-    loss_genders = losses(logits_gender, slim.one_hot_encoding(genders, 2))
-    loss_races = losses(logits_race, slim.one_hot_encoding(races, num_races))
+    logits_gender, logits_race, end_points, variables_to_restore = build_model(images, train_mode)
 
-    # Create the train_op.
-    loss = loss_genders + loss_races
-    # loss = loss_genders
-    end_points['Predictions/gender'] = tf.nn.softmax(logits_gender, name='Predictions/gender')
-    end_points['Predictions/race'] = tf.nn.softmax(logits_race, name='Predictions/race')
-    predictions1 = tf.argmax(end_points['Predictions/gender'], 1)
-    predictions2 = tf.argmax(end_points['Predictions/race'], 1)
+    # loss_genders = losses(logits_gender, slim.one_hot_encoding(genders, 2))
+    # loss_races = losses(logits_race, slim.one_hot_encoding(races, num_races))
+
+    loss_genders = losses(logits_gender, genders)
+    loss_races = losses(logits_race, races)
+
+    # total loss with regularization
+    loss = tf.add_n(
+        [loss_genders, loss_races] + tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+
+    predictions1 = tf.argmax(tf.nn.softmax(logits_gender), -1)
+    predictions2 = tf.argmax(tf.nn.softmax(logits_race), -1)
 
     accuracy1 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions1), genders)))
     accuracy2 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions2), races)))
 
     global_step = get_or_create_global_step()
-
 
     # Define your exponentially decaying learning rate
     lr = tf.train.exponential_decay(
@@ -99,9 +103,10 @@ def run():
     optimizer = tf.train.AdamOptimizer(learning_rate=lr)
     train_op = slim.learning.create_train_op(loss, optimizer)
 
-
     # Now finally create all the summaries you need to monitor and group them into one summary op.
-    tf.summary.scalar('losses/Total_Loss', loss)
+    tf.summary.scalar('total_Loss', loss)
+    tf.summary.scalar('loss_genders', loss_genders)
+    tf.summary.scalar('loss_races', loss_races)
     tf.summary.scalar('accuracy_gender', accuracy1)
     tf.summary.scalar('accuracy_race', accuracy2)
     tf.summary.scalar('learning_rate', lr)
@@ -113,7 +118,7 @@ def run():
         '''
         # Check the time for each sess run
         start_time = time.time()
-        total_loss, global_step_count, summary = sess.run([train_op, global_step, summary_op])
+        total_loss, global_step_count, summary = sess.run([train_op, global_step, summary_op], {train_mode: True})
         time_elapsed = time.time() - start_time
 
         # Run the logging to print some results
@@ -121,16 +126,25 @@ def run():
 
         return total_loss, global_step_count, summary
 
-    saver = tf.train.Saver()
+    # saver = tf.train.Saver()
 
     with tf.Session() as sess:
 
-        init_op = tf.group(tf.global_variables_initializer(),
-                           tf.local_variables_initializer())
-        input_saver = tf.train.Saver(variables_to_restore)
+        saver = tf.train.Saver(max_to_keep=100)
+        ckpt = tf.train.get_checkpoint_state(log_dir)
 
-        sess.run(init_op)
-        input_saver.restore(sess, pretrained_checkpoint)
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            print("restore and continue training!")
+        else:
+            init_op = tf.group(tf.global_variables_initializer(),
+                               tf.local_variables_initializer())
+            input_saver = tf.train.Saver(variables_to_restore)
+
+            sess.run(init_op)
+            input_saver.restore(sess, pretrained_checkpoint)
+            print("restore pre-trained parameters!")
+
 
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
@@ -140,16 +154,17 @@ def run():
         for epoch in range(num_epochs):
             logging.info('Epoch %s/%s', epoch+1, num_epochs)
 
-            for step in range(200+1): # num_steps_per_epoch
+            for step in range(num_steps_per_epoch): # num_steps_per_epoch
                 l, step_count, curr_summary = train_step(sess, train_op, global_step)
-                avg_loss += l / num_iter
+                avg_loss += l
                 print("Step%03d loss: %f" % (step + 1, l))
                 writer.add_summary(curr_summary, epoch * num_batches_per_epoch + step)
 
                 # print more detailed loss and accuracy report every n iterations
                 if step % 100 == 0:
-                    learning_rate_value, accuracy_value1, accuracy_value2 = sess.run([lr, accuracy1, accuracy2])
-                    l_gender, l_race = sess.run([loss_genders, loss_races])
+                    learning_rate_value, accuracy_value1, accuracy_value2,  l_gender, l_race = sess.run(
+                        [lr, accuracy1, accuracy2, loss_genders, loss_races],
+                        {train_mode: True})
 
                     print ('loss for gender: ', l_gender)
                     print ('loss for race: ', l_race)
@@ -158,22 +173,10 @@ def run():
                     logging.info('Current Learning Rate: %s', learning_rate_value)
                     logging.info('Current gender Accuracy: %s', accuracy_value1)
                     logging.info('Current race Accuracy: %s', accuracy_value2)
-                    logits_value1, predictions_value1, labels_value1 = sess.run(
-                        [logits_gender, predictions1, genders])
-                    print('logits gender: \n', logits_value1)
-                    print('predictions gender: \n', predictions_value1)
-                    print('Labels gender:\n', labels_value1)
-
-                    logits_value2, predictions_value2, labels_value2 = sess.run(
-                        [logits_race, predictions2, races])
-                    print('logits race: \n', logits_value2)
-                    print('predictions race: \n', predictions_value2)
-                    print('Labels race:\n', labels_value2)
 
                     saver.save(sess, checkpoint_prefix, global_step=step_count)
 
-
-            print("Epoch%03d avg_loss: %f" % (epoch, avg_loss))
+            print("Epoch%03d avg_loss: %f" % (epoch, avg_loss/step))
 
         # We log the final training loss and accuracy
         logging.info('Final Loss: %s', avg_loss)

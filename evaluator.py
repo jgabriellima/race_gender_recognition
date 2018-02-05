@@ -5,21 +5,25 @@ import inception_preprocessing
 from inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import time
 
+import numpy as np
 
 from multitask_model import *
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 slim = tf.contrib.slim
 
-import glob
+# import glob
 import os
 
-import inception_preprocessing
-from inception_resnet_v1 import inception_resnet_v1, inception_resnet_v1_arg_scope
+# import inception_preprocessing
+# from inception_resnet_v1 import inception_resnet_v1, inception_resnet_v1_arg_scope
 
-from multitask_model import  *
+from multitask_model import *
 
-data_file = './data/validate.tfrecords'
+project_dir = './'
+data_dir = project_dir + 'data/'
+data_file = data_dir + 'validate.tfrecords'
+
 image_size = 200
 num_races = 5
 
@@ -28,19 +32,21 @@ minsize = 20 # minimum size of face
 threshold = [0.7, 0.7]  #
 # factor = 0.709 # scale factor
 
-model_dir='./log/model_0/'
-list_of_files = glob.glob(model_dir + '*') # * means all if need specific format then *.csv
-latest_checkpoint = model_dir + 'model_iters_final'
 
-log_dir = './log/model_0/'
+project_dir = './'
+model_name = 'model_1'
+model_dir = project_dir + 'logs/' + model_name
+# restore_checkpoint = model_dir + 'model_iters_final.ckpt'
+log_dir = model_dir + '/eval/'
 
 #State the number of epochs to evaluate
 batch_size = 32
 num_epochs = 1
 
-num_samples = 57234
+num_samples = 4813
 num_batches_per_epoch = int(num_samples / batch_size)
 num_steps_per_epoch = num_batches_per_epoch  # Because one step is one batch processed
+num_steps_per_epoch = 201
 
 def run():
     # Create the log directory here. Must be done here otherwise import will activate this unneededly.
@@ -59,78 +65,76 @@ def run():
     images, genders, races = read_and_decode(data_file, [image_size, image_size], is_training=False)
 
     # build the multitask model
-    logits_gender, logits_race, end_points, variables_to_restore = build_model(images)
+    train_mode = tf.placeholder(tf.bool)
+    logits_gender, logits_race, end_points, variables_to_restore = build_model(images, train_mode)
 
-    loss_genders = losses(logits_gender, slim.one_hot_encoding(genders, 2))
-    loss_races = losses(logits_race, slim.one_hot_encoding(races, num_races))
+    loss_genders = losses(logits_gender, genders)
+    loss_races = losses(logits_race, races)
 
-    # Create the train_op.
-    # loss = loss_genders + loss_races
-    # loss = loss_genders
+    # total loss with regularization
+    loss = tf.add_n(
+        [loss_genders, loss_races] + tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+
     end_points['Predictions/gender'] = tf.nn.softmax(logits_gender, name='Predictions/gender')
     end_points['Predictions/race'] = tf.nn.softmax(logits_race, name='Predictions/race')
-    predictions1 = tf.argmax(end_points['Predictions/gender'], 1)
-    predictions2 = tf.argmax(end_points['Predictions/race'], 1)
+    # predictions1 = tf.argmax(end_points['Predictions/gender'], -1)
+    # predictions2 = tf.argmax(end_points['Predictions/race'], -1)
 
-    accuracy1 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions1), genders)))
-    accuracy2 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions2), races)))
+    accuracy1 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_gender, genders, 1), tf.float32))
+    accuracy2 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_race, races, 1), tf.float32))
 
-    global_step = get_or_create_global_step()
-    global_step_op = tf.assign(global_step,
-                               global_step + 1)  # no apply_gradient method so manually increasing the global_step
+    # accuracy1 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions1), genders)))
+    # accuracy2 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions2), races)))
 
-    # Create a evaluation step function
-    def eval_step(sess, global_step, summary_op):
-        '''
-        Simply takes in a session, runs the metrics op and some logging information.
-        '''
-        start_time = time.time()
-        global_step_count, v1, v2, curr_summary = sess.run([global_step_op, accuracy1, accuracy2, summary_op])
-        time_elapsed = time.time() - start_time
+    # global_step = get_or_create_global_step()
+    # global_step_op = tf.assign(global_step,
+    #                            global_step + 1)  # no apply_gradient method so manually increasing the global_step
 
-        # Log some information
-        logging.info('Global Step %s: gender Accuracy: %.4f',
-                     'race Accuracy: %.4f',
-                     ' (%.2f sec/step)', global_step_count, v1, v2,
-                     time_elapsed)
 
-        return accuracy_value1, accuracy_value2, curr_summary
-
-    tf.summary.scalar('Validation_Accuracy gender', accuracy1)
-    tf.summary.scalar('Validation_Accuracy race', accuracy2)
+    tf.summary.scalar('Validation_Accuracy_gender', accuracy1)
+    tf.summary.scalar('Validation_Accuracy_race', accuracy2)
     summary_op = tf.summary.merge_all()
 
     with tf.Session() as sess:
-        saver = tf.train.Saver()
-        init_op = tf.group(tf.global_variables_initializer(),
-                           tf.local_variables_initializer())
+        #
+        # init_op = tf.group(tf.local_variables_initializer())
+        # sess.run(init_op)
 
-        sess.run(init_op)
-        saver.restore(sess, latest_checkpoint)
+        saver = tf.train.Saver(max_to_keep=100)
+        ckpt = tf.train.get_checkpoint_state(model_dir)
+
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(sess, ckpt.model_checkpoint_path)
+            print("restore and start evaluation!")
 
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         writer = tf.summary.FileWriter(log_dir, graph=tf.get_default_graph())
 
-
+        accuracies1,  accuracies2, loss_list = [], [], []
 
         for step in range(num_steps_per_epoch):
-            accuracy1, accuracy2, curr_summary = eval_step(sess, global_step, summary_op)
+
+            start_time = time.time()
+            l, acc1, acc2, curr_summary = sess.run([loss, accuracy1, accuracy2, summary_op],
+                                                               {train_mode: False})
+            time_elapsed = time.time() - start_time
+
+            # Log some information
+            logging.info('Step %s: gender Accuracy: %.4f race Accuracy: %.4f loss: %.4f  (%.2f sec/step)',
+                         step, acc1, acc2, l, time_elapsed)
+
             writer.add_summary(curr_summary, step)
 
-
-            if step % 100 == 0:
+            if step % 10 == 0:
                 print("Step%03d: " % (step + 1))
 
-                logging.info('Current gender Accuracy: %s', accuracy1)
-                logging.info('Current race Accuracy: %s', accuracy2)
+                logging.info('Current gender Accuracy: %s', acc1)
+                logging.info('Current race Accuracy: %s', acc2)
 
-            sess.run(global_step)
-            accuracy_value1, accuracy_value2 = sess.run([accuracy1, accuracy2])
-
-            logging.info('Current gender Accuracy: %s', accuracy_value1)
-            logging.info('Current race Accuracy: %s', accuracy_value2)
-
+            accuracies1.append(acc1)
+            accuracies2.append(acc2)
+            loss_list.append(l)
 
         coord.request_stop()
         coord.join(threads)
@@ -138,4 +142,16 @@ def run():
         # saver.save(sess, final_checkpoint_file)
         sess.close()
 
+        average_acc1 = np.mean(accuracies1)
+        average_acc2 = np.mean(accuracies2)
+        average_loss = np.mean(loss_list)
 
+        logging.info('Average gender Accuracy: %s', average_acc1)
+        logging.info('Average race Accuracy: %s', average_acc2)
+        logging.info('Average loss: %s', average_loss)
+
+
+
+
+if __name__ == '__main__':
+    run()
