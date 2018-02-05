@@ -1,8 +1,17 @@
+### TODO week 2.5-2.11
+- [] train on gpu model 1
+- [] add argument parser for trainer and evaluator 
+- [] test speed for predictor, most likely needs to speed up 
+- [] read Inception Resnet paper
+- [] read SMAC and Spearmint 
+- [] might implement SMAC or Spearmint
+
+
 ### Dependencies
 (after installing miniconda which comes with essential python packages)
 - Tensorflow (added path to CUDA toolkit)
-
-
+- cv2
+- dlib (for face detection and alignment)
 
 
 ### Dataset:
