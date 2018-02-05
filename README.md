@@ -1,10 +1,10 @@
 ### TODO week 2.5-2.11
-- [] train on gpu model 1
-- [] add argument parser for trainer and evaluator 
-- [] test speed for predictor, most likely needs to speed up 
-- [] read Inception Resnet paper
-- [] read SMAC and Spearmint 
-- [] might implement SMAC or Spearmint
+- [ ] train on gpu model 1
+- [ ] add argument parser for trainer and evaluator 
+- [ ] test speed for predictor, most likely needs to speed up 
+- [ ] read Inception Resnet paper
+- [ ] read SMAC and Spearmint 
+- [ ] might implement SMAC or Spearmint
 
 
 ### Dependencies
