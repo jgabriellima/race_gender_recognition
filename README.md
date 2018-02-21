@@ -124,12 +124,11 @@ Also, might have to use an older version of python.
 - predict use saved model
 
 ## Baseline models 
-### model1_gender 
-baseline: eval acc after 2 epoches 0.001 lr   
-INFO:tensorflow:Average gender Accuracy: 0.601368   
-
+### model1_gender
 0.0001 lr   
-INFO:tensorflow:Average gender Accuracy: 0.932214   
+INFO:tensorflow:Average gender Accuracy: 0.94431586   
+### model1_race
+INFO:tensorflow:Average gender Accuracy: 0.8644865   
 
 ## Best multi-task model
 lower learning rate for all pretrained layer, mid lr for gender layer   
