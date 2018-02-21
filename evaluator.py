@@ -2,27 +2,23 @@ import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.contrib.framework.python.ops.variables import get_or_create_global_step
 import inception_preprocessing
-from inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import time
 
 import numpy as np
+import argparse
 
 from multitask_model import *
-import matplotlib.pyplot as plt
-plt.style.use('ggplot')
+# import matplotlib.pyplot as plt
+# plt.style.use('ggplot')
 slim = tf.contrib.slim
 
 # import glob
 import os
-
-# import inception_preprocessing
-# from inception_resnet_v1 import inception_resnet_v1, inception_resnet_v1_arg_scope
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 from multitask_model import *
 
-project_dir = './'
-data_dir = project_dir + 'data/'
-data_file = data_dir + 'validate.tfrecords'
+# project_dir = '/data/gender_race_face/'
 
 image_size = 200
 num_races = 5
@@ -33,14 +29,8 @@ threshold = [0.7, 0.7]  #
 # factor = 0.709 # scale factor
 
 
-project_dir = './'
-model_name = 'model_1'
-model_dir = project_dir + 'logs/' + model_name
-# restore_checkpoint = model_dir + 'model_iters_final.ckpt'
-log_dir = model_dir + '/eval/'
-
 #State the number of epochs to evaluate
-batch_size = 32
+batch_size = 128
 num_epochs = 1
 
 num_samples = 4813
@@ -48,7 +38,14 @@ num_batches_per_epoch = int(num_samples / batch_size)
 num_steps_per_epoch = num_batches_per_epoch  # Because one step is one batch processed
 num_steps_per_epoch = 201
 
-def run():
+
+def run(model_name = 'model_1', project_dir='/data/gender_race_face/'):
+    data_dir = project_dir + 'data/'
+    data_file = data_dir + 'validate_aug.tfrecords'
+
+    model_dir = project_dir + 'logs/' + model_name
+    # restore_checkpoint = model_dir + 'model_iters_final.ckpt'
+    log_dir = model_dir + '/eval/'
     # Create the log directory here. Must be done here otherwise import will activate this unneededly.
     if not os.path.exists(log_dir):
         os.mkdir(log_dir)
@@ -62,7 +59,7 @@ def run():
     tf.logging.set_verbosity(tf.logging.INFO)  # Set the verbosity to INFO level
 
     # create the dataset and load one batch
-    images, genders, races = read_and_decode(data_file, [image_size, image_size], is_training=False)
+    images, genders, races, addresses = read_and_decode(data_file, [image_size, image_size], is_training=False)
 
     # build the multitask model
     train_mode = tf.placeholder(tf.bool)
@@ -77,14 +74,14 @@ def run():
 
     end_points['Predictions/gender'] = tf.nn.softmax(logits_gender, name='Predictions/gender')
     end_points['Predictions/race'] = tf.nn.softmax(logits_race, name='Predictions/race')
-    # predictions1 = tf.argmax(end_points['Predictions/gender'], -1)
-    # predictions2 = tf.argmax(end_points['Predictions/race'], -1)
+    predictions1 = tf.argmax(end_points['Predictions/gender'], -1)
+    predictions2 = tf.argmax(end_points['Predictions/race'], -1)
 
-    accuracy1 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_gender, genders, 1), tf.float32))
-    accuracy2 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_race, races, 1), tf.float32))
+    # accuracy1 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_gender, genders, 1), tf.float32))
+    # accuracy2 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_race, races, 1), tf.float32))
 
-    # accuracy1 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions1), genders)))
-    # accuracy2 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions2), races)))
+    accuracy1 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions1), genders)))
+    accuracy2 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions2), races)))
 
     # global_step = get_or_create_global_step()
     # global_step_op = tf.assign(global_step,
@@ -146,12 +143,19 @@ def run():
         average_acc2 = np.mean(accuracies2)
         average_loss = np.mean(loss_list)
 
-        logging.info('Average gender Accuracy: %s', average_acc1)
-        logging.info('Average race Accuracy: %s', average_acc2)
+        #logging.info('Average gender Accuracy: %s', average_acc1)
+        print ('Average gender accuracy: ', average_acc1) 
+        #logging.info('Average race Accuracy: %s', average_acc2)
+        print ('Average race accuracy: ', average_acc2) 
         logging.info('Average loss: %s', average_loss)
 
 
-
-
 if __name__ == '__main__':
-    run()
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--project_dir", type=str, default="/data/gender_race_face/", help="Path to project")
+    parser.add_argument("--model_name", type=str, default="model_1", help="Model name")
+
+    args = parser.parse_args()
+
+    run(model_name = args.model_name, project_dir = args.project_dir)

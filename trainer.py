@@ -1,58 +1,47 @@
 import tensorflow as tf
-from tensorflow.contrib.framework.python.ops.variables import get_or_create_global_step
+# from tensorflow.train import get_or_create_global_step as get_or_create_global_step
 from tensorflow.python.platform import tf_logging as logging
 # from inception_resnet_v1 import inception_resnet_v1, inception_resnet_v1_arg_scope
 
 from multitask_model import losses, read_and_decode, build_model
+import argparse
 import os
-import time
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
 slim = tf.contrib.slim
 
-#================ DATASET INFORMATION ======================
-# project_dir = '/data/gender_race_face/'
-project_dir = './'
-data_dir = project_dir + 'data/'
-data_file = data_dir + 'train.tfrecords'
-
-# pre-trained checkpoint
-model_dir = project_dir +'models/'
-pretrained_checkpoint = model_dir + 'model-20170512-110547.ckpt-250000'
-
-#State where your log file is at. If it doesn't exist, create it.
-model_name = 'model_1'
-log_dir = project_dir + 'logs/' + model_name
-
-checkpoint_prefix = log_dir + '/model_iters'
-final_checkpoint_file = model_dir + model_name + '_final'
-
 image_size = 200
-
 num_races = 5
-num_samples = 38505
+num_samples = 42669
 
 #================= TRAINING INFORMATION ==================
-num_epochs = 1
-batch_size = 8
 
-initial_learning_rate = 0.01
-learning_rate_decay_factor = 0.7
-num_epochs_before_decay = 2
-
-num_batches_per_epoch = int(num_samples / batch_size)
-num_steps_per_epoch = num_batches_per_epoch  # Because one step is one batch processed
-decay_steps = int(num_epochs_before_decay * num_steps_per_epoch)
-
-num_steps_per_epoch = 201
-
-lr = 0.001
-decay_rate=0.1
-decay_per=40 #epoch
-num_iter = 57234 / batch_size
+# initial_learning_rate = 0.001
+learning_rate_decay_factor = 0.9
+decay_steps = 4000
 
 
+def run(model_name, project_dir, initial_learning_rate, batch_size, num_epoch):
+    # ================= TRAINING INFORMATION ==================
+    num_batches_per_epoch = int(num_samples / batch_size)
+    num_steps_per_epoch = num_batches_per_epoch  # Because one step is one batch processed
 
-def run():
+    # ================ DATASET INFORMATION ======================
+    data_dir = project_dir + 'data/'
+    data_file = data_dir + 'train_aug.tfrecords'
+
+    # pre-trained checkpoint
+    model_dir = project_dir + 'models/'
+    pretrained_checkpoint = model_dir + 'model-20170512-110547.ckpt-250000'
+
     # Create the log directory here. Must be done here otherwise import will activate this unneededly.
+
+    # State where your log file is at. If it doesn't exist, create it.
+    log_dir = project_dir + 'logs/' + model_name
+
+    checkpoint_prefix = log_dir + '/model_iters'
+    final_checkpoint_file = model_dir + model_name + '_final'
+
     if not os.path.exists(log_dir):
         os.mkdir(log_dir)
 
@@ -66,12 +55,13 @@ def run():
     tf.logging.set_verbosity(tf.logging.INFO)  # Set the verbosity to INFO level
 
     # create the dataset and load one batch
-    images, genders, races = read_and_decode(data_file, [image_size, image_size], batch_size=batch_size)
+    images, genders, races, addresses = read_and_decode(data_file, [image_size, image_size], batch_size=batch_size)
 
     # build the multitask model
     train_mode = tf.placeholder(tf.bool)
 
     logits_gender, logits_race, end_points, variables_to_restore = build_model(images, train_mode)
+
 
     # loss_genders = losses(logits_gender, slim.one_hot_encoding(genders, 2))
     # loss_races = losses(logits_race, slim.one_hot_encoding(races, num_races))
@@ -81,17 +71,16 @@ def run():
 
     # total loss with regularization
     loss = tf.add_n(
-        [loss_genders, loss_races] + tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+        [loss_genders, loss_races/5])
 
-    predictions1 = tf.argmax(tf.nn.softmax(logits_gender), -1)
-    predictions2 = tf.argmax(tf.nn.softmax(logits_race), -1)
+    # loss = tf.add_n([loss_genders, loss_races])
 
-    accuracy1 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions1), genders)))
-    accuracy2 = tf.reduce_mean(tf.to_float(tf.equal(tf.to_int32(predictions2), races)))
+    accuracy1 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_gender, genders, 1), tf.float32))
+    accuracy2 = tf.reduce_mean(tf.cast(tf.nn.in_top_k(logits_race, races, 1), tf.float32))
 
-    global_step = get_or_create_global_step()
+    global_step = slim.train.get_or_create_global_step()    # Define your exponentially decaying learning rate
 
-    # Define your exponentially decaying learning rate
+
     lr = tf.train.exponential_decay(
         learning_rate=initial_learning_rate,
         global_step=global_step,
@@ -99,9 +88,43 @@ def run():
         decay_rate=learning_rate_decay_factor,
         staircase=True)
 
+    lr_mid = tf.train.exponential_decay(
+        learning_rate=initial_learning_rate/10,
+        global_step=global_step,
+        decay_steps=decay_steps,
+        decay_rate=learning_rate_decay_factor,
+        staircase=True)
+
+    lr_low = tf.train.exponential_decay(
+        learning_rate=initial_learning_rate/100,
+        global_step=global_step,
+        decay_steps=decay_steps,
+        decay_rate=learning_rate_decay_factor,
+        staircase=True)
+
     # Now we can define the optimizer that takes on the learning rate
-    optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-    train_op = slim.learning.create_train_op(loss, optimizer)
+    gender_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Gender')
+    race_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'Race')
+
+    gender_opt = tf.train.AdamOptimizer(learning_rate=lr_mid)
+    race_opt = tf.train.AdamOptimizer(learning_rate = lr)
+
+    final_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = 'InceptionResnetV1')
+    final_optimizer = tf.train.AdamOptimizer(learning_rate=lr_low)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)  # update batch normalization layer
+
+    with tf.control_dependencies(update_ops):
+
+        # train_gender_op = slim.learning.create_train_op(loss_genders, gender_opt, global_step, variables_to_train=gender_vars)
+        # train_race_op = slim.learning.create_train_op(loss_races, race_opt, global_step,variables_to_train=race_vars)
+        # train_restnet_op = slim.learning.create_train_op(loss, final_optimizer, global_step, variables_to_train= final_variables)
+
+        train_gender_op = gender_opt.minimize(loss_genders, var_list=gender_vars, global_step = global_step)
+        train_race_op = race_opt.minimize(loss_races, var_list=race_vars, global_step = global_step)
+        train_restnet_op = final_optimizer.minimize(loss, var_list=final_variables, global_step = global_step)
+
+        train_op = tf.group(train_gender_op, train_race_op, train_restnet_op)
 
     # Now finally create all the summaries you need to monitor and group them into one summary op.
     tf.summary.scalar('total_Loss', loss)
@@ -110,32 +133,20 @@ def run():
     tf.summary.scalar('accuracy_gender', accuracy1)
     tf.summary.scalar('accuracy_race', accuracy2)
     tf.summary.scalar('learning_rate', lr)
+    tf.summary.image('training_samples', images, max_outputs=4)
+
     summary_op = tf.summary.merge_all()
 
-    def train_step(sess, train_op, global_step):
-        '''
-        Simply runs a session for the three arguments provided and gives a logging on the time elapsed for each global step
-        '''
-        # Check the time for each sess run
-        start_time = time.time()
-        total_loss, global_step_count, summary = sess.run([train_op, global_step, summary_op], {train_mode: True})
-        time_elapsed = time.time() - start_time
-
-        # Run the logging to print some results
-        logging.info('global step %s: loss: %.4f (%.2f sec/step)', global_step_count, total_loss, time_elapsed)
-
-        return total_loss, global_step_count, summary
-
-    # saver = tf.train.Saver()
-
     with tf.Session() as sess:
+        # step = sess.run(global_step)
 
-        saver = tf.train.Saver(max_to_keep=100)
+        saver = tf.train.Saver(max_to_keep=20)
         ckpt = tf.train.get_checkpoint_state(log_dir)
 
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(sess, ckpt.model_checkpoint_path)
             print("restore and continue training!")
+
         else:
             init_op = tf.group(tf.global_variables_initializer(),
                                tf.local_variables_initializer())
@@ -145,25 +156,31 @@ def run():
             input_saver.restore(sess, pretrained_checkpoint)
             print("restore pre-trained parameters!")
 
-
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         writer = tf.summary.FileWriter(log_dir, graph=tf.get_default_graph())
 
         avg_loss, acc = 0, 0
-        for epoch in range(num_epochs):
-            logging.info('Epoch %s/%s', epoch+1, num_epochs)
+        for epoch in range(num_epoch):
+            logging.info('Epoch %s/%s', epoch+1, num_epoch)
 
             for step in range(num_steps_per_epoch): # num_steps_per_epoch
-                l, step_count, curr_summary = train_step(sess, train_op, global_step)
+                # l, step_count, curr_summary = train_step(sess, train_op, global_step)
+                _, summary, step_count, l = sess.run([train_op, summary_op, global_step, loss], {train_mode: True})
+                # step_count = epoch * num_batches_per_epoch + step
                 avg_loss += l
+                # acc +=
+
                 print("Step%03d loss: %f" % (step + 1, l))
-                writer.add_summary(curr_summary, epoch * num_batches_per_epoch + step)
+                # step_count = epoch * num_steps_per_epoch + step + 1
+
+                writer.add_summary(summary, step_count)
 
                 # print more detailed loss and accuracy report every n iterations
                 if step % 100 == 0:
-                    learning_rate_value, accuracy_value1, accuracy_value2,  l_gender, l_race = sess.run(
-                        [lr, accuracy1, accuracy2, loss_genders, loss_races],
+                    log1, log2, l1, l2, addr, learning_rate_value, accuracy_value1, accuracy_value2,  l_gender, l_race = sess.run(
+                        [logits_gender, logits_race, genders, races, addresses,
+                         lr, accuracy1, accuracy2, loss_genders, loss_races],
                         {train_mode: True})
 
                     print ('loss for gender: ', l_gender)
@@ -174,18 +191,14 @@ def run():
                     logging.info('Current gender Accuracy: %s', accuracy_value1)
                     logging.info('Current race Accuracy: %s', accuracy_value2)
 
+                    print ('gender labels: ', l1)
+                    print ('race labels: ', l2)
+#                    print ('image address', addr)
+
                     saver.save(sess, checkpoint_prefix, global_step=step_count)
 
             print("Epoch%03d avg_loss: %f" % (epoch, avg_loss/step))
 
-        # We log the final training loss and accuracy
-        logging.info('Final Loss: %s', avg_loss)
-
-        #     # Once all the training has been done, save the log files and checkpoint model
-        logging.info('Finished training! Saving model to disk now.')
-        # saver.save(sess, "./log/model-gender.ckpt")
-        #     sv.saver.save(sess, sv.save_path, global_step=sv.global_step)
-        # # Run the managed session
         coord.request_stop()
         coord.join(threads)
 
@@ -194,4 +207,20 @@ def run():
 
 
 if __name__ == '__main__':
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--learning_rate", "--lr", type=float, default=1e-3, help="Init learning rate")
+    parser.add_argument("--num_epoch", type=int, default=1, help="number of epochs")
+    # parser.add_argument("--combined_epoch", type=int, default=0, help="number of epochs")
+
+    parser.add_argument("--batch_size", type=int, default=32, help="number of steps/batch")
+
+    parser.add_argument("--project_dir", type=str, default="/data/gender_race_face/", help="Path to project")
+    parser.add_argument("--model_name", type=str, default="model_1", help="Model name")
+
+    args = parser.parse_args()
+
+    run(model_name = args.model_name,
+        project_dir = args.project_dir,
+        initial_learning_rate=args.learning_rate,
+        batch_size = args.batch_size,
+        num_epoch = args.num_epoch)
