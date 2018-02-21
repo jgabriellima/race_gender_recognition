@@ -1,10 +1,10 @@
-### Dependencies
+## Dependencies
 (after installing miniconda which comes with essential python packages)
 1. Tensorflow (added path to CUDA toolkit)
 
 
-### Dataset
-#### UTF faces (aligned and cropped):
+## Dataset
+### UTF faces (aligned and cropped):
 https://susanqq.github.io/UTKFace/
 
 The labels of each face image is embedded in the file name, formated like [age]\_[gender]\_[race]\_[date&time].jpg
@@ -21,7 +21,7 @@ mv 61_1_20170109150557335.jpg.chip.jpg 61_1_3_20170109150557335.jpg.chip
 mv 61_1_20170109142408075.jpg.chip.jpg 61_1_1_20170109142408075.jpg.chip
 ```            
 
-#### Raw
+### Raw
 **gender_labels**   
 0: male, 1: female  
 {'0': 12391, '1': 11317}
@@ -30,16 +30,16 @@ mv 61_1_20170109142408075.jpg.chip.jpg 61_1_1_20170109142408075.jpg.chip
 White, Black, Asian, Indian, and Others  
 {'0': 10078, '1': 4528, '2': 3434, '3': 3976, '4': 1692}
 
-#### Augmentation
+### Augmentation
 0: no, 1: x2, 2: x3, 3: x3, 4: x4  
 
-**train genders**  
+- **train genders**  
 Counter({'0': 22188, '1': 21128})    
-**val gender**  
+- **val gender**  
 Counter({'0': 2473, '1': 2336})  
-**train races**  
+- **train races**  
 Counter({'3': 10809, '2': 9270, '0': 9057, '1': 8156, '4': 6024})  
-**val race**  
+- **val race**  
 Counter({'3': 1116, '2': 1032, '0': 1021, '1': 896, '4': 744})  
 
 
