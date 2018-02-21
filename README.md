@@ -21,7 +21,7 @@ mv 61_1_20170109150557335.jpg.chip.jpg 61_1_3_20170109150557335.jpg.chip
 mv 61_1_20170109142408075.jpg.chip.jpg 61_1_1_20170109142408075.jpg.chip
 ```            
 
-##### Raw
+#### Raw
 **gender_labels**   
 0: male, 1: female  
 {'0': 12391, '1': 11317}
@@ -30,7 +30,7 @@ mv 61_1_20170109142408075.jpg.chip.jpg 61_1_1_20170109142408075.jpg.chip
 White, Black, Asian, Indian, and Others  
 {'0': 10078, '1': 4528, '2': 3434, '3': 3976, '4': 1692}
 
-##### Augmentation
+#### Augmentation
 0: no, 1: x2, 2: x3, 3: x3, 4: x4  
 
 **train genders**  
